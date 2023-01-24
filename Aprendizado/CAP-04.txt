@@ -1,0 +1,205 @@
+- Nesse capítulo falamos sobre o Service Discovery e Registry!
+
+
+- Nesse ponto já temos um Microserviço, o de Pagamentos. Ele ainda precisa de melhorias, mas já está funcional, ele já roda no localhost:8080/pagamentos ! 
+Só que pensa no cenário que já tivessemos diversos Microsserviços, teriamos que saber muitos ip's e portas e isso é trabalhoso, quase impossível saber de cabeça). 
+Para facilitar nossa vida, podemos usar o Service Discovery, que é um Microserviço que vai ser um catálogo que vai conhecer o endereço (ip's e portas) de
+todos os Microserviços (inclusive de todas as instancias que rodam o mesmo Microserviço), dessa forma a gente pode "consultar" esse catálogo para descobrir
+o ip e porta de um Microserviço e depois fazer a requisição a ele.
+
+
+- Mas então Service Discovery e Service Registry são a mesma coisa? Sim, mas cada um define uma etapa do processo. Service Discovery é referente ao Cliente
+(um microserviço) que precisa consumir o microserviço X, mas não sabe o IP:porta do serviço X, então ele vai consultar o catálogo.
+Já o Service Registry é referente ao Microserviço X poder se cadastrar no catalogo e ser descoberto por quem deseja usá-lo!
+
+
+
+- Para implementar um Service Discovery o Spring tem o Eureka Server, esse foi desenvolvido pela Netflix e o Spring disponibilza o mesmo na dependencia chamada:
+Eureka Server do Projeto Spring Cloud Netflix.
+
+
+- Criando o Microserviço de Service Registry:
+
+	1) Entre no site https://start.spring.io/
+
+	2) Configure um projeto do Java 17 com Maven e com o Sring 2.7.7. O Group = br.com.alurafood, Artifcat e name é = server e em dependencia adicionar: 
+	Eureka Server.
+
+	3) Abra o projeto na IDE e altere seu application.properties para:
+
+                server.port=8081
+
+                spring.application.name=server
+                eureka.client.serviceUrl.defaultZone=http://localhost:8081/eureka
+
+                eureka.client.register-with-eureka=false
+                eureka.client.fetch-registry=false
+
+	A primeira define a porta que o Serviço vai rodar, por padrão seria: 8761
+
+	A segunda define o nome da aplicação, veremos que com Service Discovery a gente passa a consumir outras APIS pelo seu nome e não pelo IP:porta
+
+	A terceira define o host, porta e path que o serviço vai registrar os clientes, ou seja, quem ussa esse é o cliente (aplicaçã que vai se registrar, 
+	por exemplo Pagamento)
+
+
+	E as duas últimas desabilita essa aplicação registrar ela mesmo no serviço de Discovery! Isso existe, pois podemos ter um Microserviço comum 
+	(por exemplo o de Pagamentos) que seja MS e Service Discovery ao mesmo tempo. Aqui optamos por isolar essa funcionalidade em um Serviço Específico!
+
+	4) Agora devemor ir na classe principal do projeto (a que tem método main) e adicionar a anotação: @EnableEurekaServer
+
+                @SpringBootApplication
+                @EnableEurekaServer
+                public class ServerApplication {
+
+                    public static void main(String[] args) {
+                        SpringApplication.run(ServerApplication.class, args);
+                    }
+
+                }
+
+	5) Agora podemos rodar a aplicação e acesar: localhost:8081
+
+
+
+- Agora temos que ir nos Microsserviços (no nosso caso por enquanto é só o de Pagamento) e registrá-los no Service Registry, ou seja, é como se fossemos
+cadastrá-los no Catálogo! Para isso siga:
+
+	1) Devemos adicionar nesse projeto a dependencia (no pom.xml) do Eureka Client:
+            
+		<spring-cloud.version>2021.0.5</spring-cloud.version>
+            
+            
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+            </dependency>
+
+            <dependencyManagement>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.springframework.cloud</groupId>
+                        <artifactId>spring-cloud-dependencies</artifactId>
+                        <version>${spring-cloud.version}</version>
+                        <type>pom</type>
+                        <scope>import</scope>
+                    </dependency>
+                </dependencies>
+            </dependencyManagement>            
+
+	2) Va na classe principal do projeto Pagamentos, no caso é a classe que tem método main() e adicione a anotação:  
+
+			@EnableEurekaClient
+
+	3) Agora devemos ir no application.properties para podermos de fato registrar nossa aplicação no Eureka Server, que é o Service Registry (Projeto com
+	nome de server). Devemos por no arquivo:
+
+		spring.application.name=pagamentos-ms
+		eureka.client.serviceUrl.defaultZone=http://localhost:8081/eureka
+		server.port=0
+
+	O primeiro comando é para dar um nome ao projeto, pois o Service Discovery vai descobrir o mesmo pelo seu nome!
+	O segundo comando é para gente registrar o projeto Pagamentos no Service Registry, lá no projeto server há essa mesma configuração
+	E o terceiro comando indica que a porta que o projeto vai ser executado é controlado pelo Service Discovery.
+
+	4) Agora basta rodar as aplicações:
+
+		- Rode primeiro o projeto server (Service Discovery)
+
+		- Rode depois o projeto Pagamentos
+
+		- Acesse o localhost:8081 (é o IP do Service Discovery) e veja se a instancia do Projeto Pagamentos foi criada. Clique no valor que está em
+		Status e uma nova aba se abrirá e através da URI vamos saber em que porta o projeto Pagamentos foi levantado. E agora temos que rodar a
+		aplicação com a porta dada pelo Service Discovery, pois a localhost:8080/pagamentos não vai funcionar mais!
+
+
+- Agora vamos passar a usar um novo Microserviço, no caso o de Serviço. Esse projeto já foi feito pela professora:
+
+	- Link para Download: https://caelum-online-public.s3.amazonaws.com/2545-microservicos/04/pedidos.zip
+
+	- Configure essa aplicação com sua config do banco de dados, execute a aplicação e teste a mesma via Postman:
+
+                http:localhost:8080/pedidos
+
+                {
+                    "itens": [
+                    {
+                        "quantidade": 10,
+                        "descrição": "Coca-cola"
+                    },
+                    {
+                        "quantidade": 5,
+                        "descrição": "Mc Chicken"
+                    }
+                    ]
+                }
+
+
+
+
+
+	- Só precisamos fazer algumas alterações, nesta aplicação:
+
+		- Devemos adicionar nesse projeto a dependencia (no pom.xml) do Eureka Client:
+            
+                <spring-cloud.version>2021.0.5</spring-cloud.version>
+                    
+                    
+                    <dependency>
+                        <groupId>org.springframework.cloud</groupId>
+                        <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+                    </dependency>
+
+                    <dependencyManagement>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.springframework.cloud</groupId>
+                                <artifactId>spring-cloud-dependencies</artifactId>
+                                <version>${spring-cloud.version}</version>
+                                <type>pom</type>
+                                <scope>import</scope>
+                            </dependency>
+                        </dependencies>
+                    </dependencyManagement>  
+          
+		- Adicionar na classe principal (a que tem o método main) a anotação:
+
+			@EnableEurekaClient
+		
+		- Configurar agora para essa aplicação ser um Client do Eureka (Service Registry), para isso adicionamos no application.properties:
+
+                    #Dando esse nome ao projeto, pois o Service Discovery vai descobrir o mesmo pelo seu nome!
+                    spring.application.name=pedidos-ms
+
+                    #Esse é para gente registrar o projeto Pagamentos no Service Registry, lá no projeto server há essa mesma configuração
+                    eureka.client.serviceUrl.defaultZone=http://localhost:8081/eureka
+
+                    #Ao deixar esse valor, a porta que o projeto vai ser executado é controlado pelo Service Discovery.
+                    server.port=0
+
+
+- Suba agora o projeto Server, que no caso é nosso Service Registry/Discovery. Depois suba os clients, no casso o projeto Pagamentos e Pedidos.
+
+
+	- Acesse o localhost:8081 (é o IP do Service Discovery) e veja se as instancias dos projetos foram criadas. Tenha em mente que toda vez que a gente
+	derrubar esses serviços e subir novamente a porta muda! Dessa forma, como vamos usar esse serviços? Toda vez teremos que acessar o Service Discovery
+	para verificar a porta? Não, para resolver isso vamos passar a usar um serviço do tipo Gateway, que será a porta de entrada! As requests vão bater
+	primeiro no gateway e esse nunca muda ip e porta!
+
+	Obs: Lembre-se que para ver a porta de cada serviço, basta acessar o localhost:8081 (é o IP do Service Discovery), clicar nas instancias (em baixo
+	de Status) e ver o path que vai estar no navegador.
+
+
+
+
+
+	
+
+
+
+
+
+
+
+
+

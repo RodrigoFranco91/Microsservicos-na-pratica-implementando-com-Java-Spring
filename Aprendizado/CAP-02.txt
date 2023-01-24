@@ -1,0 +1,250 @@
+- Aqui iniciamos o desenvolvimento do nosso projeto Pagamentos:
+
+
+- Há diversas maneiras (padrões) para se organizar um código, pode ser por Recurso (há uma pasta para cada recurso, por exemplo: pagamentos, pedidos,
+restaurantes. E seguindo o exemplo, a classe PedidoDto, PedidoController, PedidoRepository e qualquer outra pasta referente ao Recurso Pedido ficaria na
+mesma pasta - no caso pedido). Outra maneira de se organizar é por camadas (Package by Layer), nesse caso haverá um pacote Model, um pacote Controller,
+um pacote Repository...
+
+
+- Aqui vamos usar o modo Package by Layer
+
+
+- Vamos criar o pacote model e dentro dela a classe Pagamento. Veja como ela ficará:
+
+            @Entity
+            @Table(name = "pagamentos")
+            @Getter
+            @Setter
+            @AllArgsConstructor
+            @NoArgsConstructor
+            public class Pagamento {
+
+                @Id
+                @GeneratedValue(strategy = GenerationType.IDENTITY)
+                private Long id;
+
+                @NotNull
+                @Positive
+                private BigDecimal valor;
+
+                @NotBlank
+                @Size(max = 100)
+                private String nome;
+
+                @NotBlank
+                @Size(max = 19)
+                private String numero;
+
+                @NotBlank
+                @Size(max = 7)
+                private String expiracao;
+
+                @NotBlank
+                @Size(min = 3, max = 3)
+                private String codigo;
+
+                @Enumerated(EnumType.STRING)
+                @NotNull
+                private Status status;
+
+                @NotNull
+                private Long pedidoId;
+
+                @NotNull
+                private Long formaDePagamentoId;
+
+            }
+
+	A anotação Entity define que essa classe vai ser gerenciada pela JPA, ou seja, será uma tabela no banco;
+
+	Já Table define o nome da tabela a ser criada no banco de dados, sem ela o nome seria igual da classse;
+
+	As outras anotações em cima da classe são do Lombook, para criar getter, setter, construtores...
+
+	As anotações Id e GeneratedValue são da JPA, define qual atributo será a chave primaria e como seu valor será gerado
+
+	A anotação @Enumerated(EnumType.STRING) define que o atributo é um Enum e o tipo define como o valor será gravado no banco. É uma anotação da JPA.
+
+	As outras anotações dos atributos são do Validation, servem para validar os valores (define uma regra a ser seguida).
+
+
+- Criamos o pacote repository e dentro dele a Interface PagamentoRepository, veja:
+
+            public interface PagamentoRepository extends JpaRepository<Pagamento, Long> {
+
+            }
+
+
+- Vamos usar o padrão DTO, pois com esse a gente não devolve a classe de Entidade para o Cliente. Vamos devolver uma representação da Entidade, no caso
+será a classe PagamentDto, dento do pacote dto.
+
+            @Getter
+            @Setter
+            public class PagamentoDto {
+
+                private Long id;
+                private BigDecimal valor;
+                private String nome;
+                private String numero;
+                private String expiracao;
+                private String codigo;
+                private Status status;
+                private Long pedidoId;
+                private Long formaDePagamentoId;
+
+            }
+
+	Aqui conseguimos mapear de Json pra Java e vice-versa graças a biblioteca Jackson, que o Spring já traz!
+
+
+- As regras de nosso projeto vão ficar no pacote Service! Crie o pacote service e dentro dele a classe PagamentoService anotada com @Service, veja:
+
+            @Service
+            public class PagamentoService {
+
+                @Autowired
+                private PagamentoRepository repository;
+
+                @Autowired
+                private ModelMapper modelMapper;
+
+                public Page<PagamentoDto> obterTodos(Pageable paginacao) {
+                    return repository
+                            .findAll(paginacao)
+                            .map(p -> modelMapper.map(p, PagamentoDto.class));
+                }
+
+                public PagamentoDto obterPorId(Long id) {
+                    Pagamento pagamento = repository.findById(id)
+                            .orElseThrow(() -> new EntityNotFoundException());
+
+                    return modelMapper.map(pagamento, PagamentoDto.class);
+                }
+
+                public PagamentoDto criarPagamento(PagamentoDto dto) {
+                    Pagamento pagamento = modelMapper.map(dto, Pagamento.class);
+                    pagamento.setStatus(Status.CRIADO);
+                    repository.save(pagamento);
+
+                    return modelMapper.map(pagamento, PagamentoDto.class);
+                }
+
+                public PagamentoDto atualizarPagamento(Long id, PagamentoDto dto) {
+                    Pagamento pagamento = modelMapper.map(dto, Pagamento.class);
+                    pagamento.setId(id);
+                    pagamento = repository.save(pagamento);
+                    return modelMapper.map(pagamento, PagamentoDto.class);
+                }
+
+                public void excluirPagamento(Long id) {
+                    repository.deleteById(id);
+                }
+                
+            }
+
+
+	Nessa classe tivemos que injetar PagamentoRepository que é responsável por persistir o objeto Pagamento;
+
+	Nessa classe tivemos que injetar ModelMapper que é responsavel por transformar classe do tipo X em tipo Y. Para isso funcionar facilmente os atributos 
+	da classe X e Y devem ter o mesmo nome. Além disso tive que adicionar a dependencia de ModelMapper no pom.xml;
+
+	Os métodos dessa classe são para implementar o CRUD de Pagamento.
+
+
+- Agora vamos cirar a nossa classe Controller, que é a responsável por receber e responder as requisições. Devemos criar o pacote controller e dentro dela
+a classe PagamentoController anotada com @RestController e @RequestMapping("/pagamentos"):
+
+                @RestController
+                @RequestMapping("/pagamentos")
+                public class PagamentoController {
+
+                    @Autowired
+                    private PagamentoService service;
+
+                    @GetMapping
+                    public Page<PagamentoDto> listar(@PageableDefault(size = 10) Pageable paginacao) {
+                        return service.obterTodos(paginacao);
+                    }
+
+                    @GetMapping("/{id}")
+                    public ResponseEntity<PagamentoDto> detalhar(@PathVariable @NotNull Long id) {
+                        PagamentoDto dto = service.obterPorId(id);
+
+                        return ResponseEntity.ok(dto);
+                    }
+
+                    @PostMapping
+                    public ResponseEntity<PagamentoDto> cadastrar(@RequestBody @Valid PagamentoDto dto, UriComponentsBuilder uriBuilder) {
+                        PagamentoDto pagamento = service.criarPagamento(dto);
+                        URI endereco = uriBuilder.path("/pagamentos/{id}").buildAndExpand(pagamento.getId()).toUri();
+
+                        return ResponseEntity.created(endereco).body(pagamento);
+                    }
+
+                    @PutMapping("/{id}")
+                    public ResponseEntity<PagamentoDto> atualizar(@PathVariable @NotNull Long id, @RequestBody @Valid PagamentoDto dto) {
+                        PagamentoDto atualizado = service.atualizarPagamento(id, dto);
+                        return ResponseEntity.ok(atualizado);
+                    }
+
+                    @DeleteMapping("/{id}")
+                    public ResponseEntity<PagamentoDto> remover(@PathVariable @NotNull Long id) {
+                        service.excluirPagamento(id);
+                        return ResponseEntity.noContent().build();
+                    }
+                }
+
+
+	Nessa classe tivemos que injetar PagamentoService que é responsável pelas regras de negócio referente ao objeto Pagamentol;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

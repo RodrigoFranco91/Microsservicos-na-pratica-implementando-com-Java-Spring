@@ -1,0 +1,239 @@
+- Nesse capítulo falamos sobre a comunicação sincrona com o Open Feign:
+
+
+
+- Pense na Comunicação Sincrona como uma conversa de telefone, você e tá falando com a outra pessoa e ela te respondendo naquele exato momento (Você fala
+e a outra pessoa ta te escutando e assim que você termina a outra pessoa já te responde e você agora tá escutando a resposta)...
+
+
+- Ja a comunicação Assincrona não tem essa ordem de ouvir e já responder. Pense nela como se fosse envio de áudio ou e-mail. Nesse cenário você envia a 
+mensagem e vai fazer outra coisa, pois não há certeza que a outra pessoa (receptor) vai ver a mensagem e lhe responder rapidamente.
+
+
+- Aqui vamos usar o Open Feign do projeto Spring Cloud
+
+
+- A comunicação que vamos fazer é: quando ocorrer um pagamento, o projeto pagamentos vai ter que conversar com o projeto pedidos, pois temos que informar
+que um determinado pedido foi pago. 
+Já existe no projeto de Pedido um método no controller que atualiza o status do pedido para pago, no caso é:
+
+                @PutMapping("/{id}/pago")
+                public ResponseEntity<Void> aprovaPagamento(@PathVariable @NotNull Long id) {
+                    service.aprovaPagamentoPedido(id);
+
+                    return ResponseEntity.ok().build();
+
+                }
+
+O que temos que fazer nesse caso é configurar o projeto Pagamentos para ele conseguir chamar esse método!
+
+
+- Vamos configurar o projeto Pagamentos para ele poder conversar com o projeto Pedidos. Siga os passos:
+
+	1) No arquivo pom devemos adicionar:
+
+                <spring-cloud.version>2021.0.5</spring-cloud.version>
+
+                <dependency>
+                    <groupId>org.springframework.cloud</groupId>
+                    <artifactId>spring-cloud-starter-openfeign</artifactId>
+                </dependency>
+
+                <dependencyManagement>
+                    <dependencies>
+                    <dependency>
+                        <groupId>org.springframework.cloud</groupId>
+                        <artifactId>spring-cloud-dependencies</artifactId>
+                        <version>${spring-cloud.version}</version>
+                        <type>pom</type>
+                        <scope>import</scope>
+                    </dependency>
+                    </dependencies>
+                </dependencyManagement>
+
+	2) Agora na classe principal (tem o método main) adicionar a anotação @EnableFeignClients
+
+	3) Criar o pacote http
+
+	4) Dentro do pacote http criar a internface PedidoClient (pois nosso client http vai consumir o projeto pedido, por isso damos esse nome).
+	A interface deve ficar assim:
+
+                @FeignClient("pedidos-ms")
+                public interface PedidoClient {
+
+                    @RequestMapping(method =  RequestMethod.PUT, value = "/pedidos/{id}/pago")
+                    void atualizaPagamento(@PathVariable Long id);
+
+                }
+
+	Veja que temos que anotar a interface com @FeignClient para esse passar a ser um Bean (Objeto gerenciado pelo Spring) e nessa anotação eu já coloquei
+	"pedidos-ms", esse é o serviço que esse client vai consumir. Foi possivel usar o nome do projeto, pois estamos fazendo uso de Service Registry.
+
+	Depois criamos um método que retorna nada, pois o método que vamos chamar do projeto Pedidos não retorna nada ou por que não queremos pegar essa reposta
+	e o argumento desse método é um id anotado com @PathVariable, pois o valor desse id vai trafegar via path da request que vamos fazer.
+
+	Por fim, o método é anotado com @RequestMapping e nesta anotação definimos o método e o path da operação que queremos consumir do projeto pedidos,
+	neste caso é PUT e o path é /pedidos/{id}/pago (ou seja vamos bater no método do controller que tá lá do projeto Pedidos que é um @Putmapping("/pedidos/{id}/pago")
+
+
+- Agora o projeto pagamentos já consegue conversar com o projeto pedidos, mas o que vai original essa conversa? No caso será quando houver a confirmação de
+um pagamento (isso ocorre no projeto pagamentos). Mas ainda não existe um método de controller que faz essa confirmação de pagamento, portanto devemos criá-lo.
+Na classe PagamentoController temos que criar o método:
+
+                @PatchMapping("/{id}/confirmar")
+                    public void confirmarPagamento(@PathVariable @NotNull Long id){
+                        service.confirmarPagamento(id);
+                    }
+
+	Veja que estamos chamando o método confirmarPagamento() de PagamentoService, mas esse ainda não existe, vamos criá-lo a seguir. Na class
+	Pagamento Service devemos criar:
+
+                public void confirmarPagamento(Long id){
+                    Optional<Pagamento> pagamento = repository.findById(id);
+
+                    if (!pagamento.isPresent()) {
+                        throw new EntityNotFoundException();
+                    }
+
+                    pagamento.get().setStatus(Status.CONFIRMADO);
+                    repository.save(pagamento.get());
+                    pedido.atualizaPagamento(pagamento.get().getPedidoId());
+                }
+
+	Veja que a linha com código pedido.atualizaPagamento(pagamento.get().getPedidoId()); está dando erro e é essa linha que faz a conversa entre as
+	aplicações. Pedido é uma referencia da interface PedidoClient. Devemos criar e injetar essa referencia na classe PagamentoService, ficando assim:
+
+
+                @Autowired
+                private PedidoClient pedido;
+
+
+- Agora já podemos testar essa conversa. Para isso suba todos os projetos (de preferencia o Service Registry primeiro, depois o Gateway e por fim os 
+microsserviços).
+
+	- Atualemente temos: 
+
+		- pedido de id = 1 com status de realizado;
+
+		- pagamento de id = 2 que é referente ao pdido 1 (pedido_id) e está com o status de criado.
+
+	- A gora vamos fazer a uma request do tipo PATCH para: localhost:8082/pagamentos-ms/pagamentos/2/confirmar
+	Ou seja, vamos confirmar o pagamento do pagamento de id 2.
+
+	- Por consequencia, a request rodada anteriormente deve alterar o status do pedido de id = 1 de realizado para pago e alem disso o prórpio pagamento
+	de id = 2 vai ter status alterado de criado para confirmado. 
+
+
+- Agora vamos falar sobre Circuit Breaker e Fallback. Nesse capítulo usamos o Open Feign para a aplicação Pagamentos conversar com a aplicação Pedidos, 
+inclusive já testamos isso e vimos funcionar. Mas o que aconteceria se a aplicação Pagamentos fosse conversar com Pedidos e esta última estivesse fora do
+ar, ou trabalhando com lentidão? Nós teriamos um erro, uma falha e até agora não estamos tratando isso, caso ocorra. Para isso vamos usar:
+
+	- Circuit Breaker: para entender esse, podemos fazer uma analogia com um disjuntor que fica aberto e fechado. Um Circuit Breaker vai ter esses
+	status:
+
+		I) Fechado = Todos os sistemas estão no ar, tudo está perfeito e vai funcionar corretamente!
+
+		II) Aberto = Esse status indica que já ocorreu muita falha de comunicação entre os sistemas (a gente configura quanto será tolerável) e por 
+		isso a comunicação será impossibilitada/bloqueada. Aqui vamos poder adotar um plano B para isso, ou seja, qual comportamento adotar após uma
+		aplicação tentar se comunicar com outra, mas não conseguir. Esse Plano B é o Fallback.
+
+		III) Meio-Aberto = É o status após o Aberto, ou seja, teve erros e o status foi para Aberto, depois de um tempo (podemos configurar isso) o 
+		status vai para meio-aberto para verificar se haverá sucesso ou não nas comunicações e o resultado desse teste é o que define o próximo status, 
+		pois se tudo ocorrer bem o status vai para fechado, mas se voltar a ter falhas o status vai para fechado.
+
+	- A implementação de Circuit Breaker que vamos usar é: Resilience 4j, pois esse trabalha junto com o Spring. Para mais detalhes veja:
+	https://cursos.alura.com.br/course/microsservicos-implementando-java-spring/task/107201#:~:text=Vamos%20usar%20o-,Resilience%204j,-%2C%20que%20trabalha%20com
+
+	- Com o Resilience 4j, nós podemos dar uma nome para cada comunicação, ou seja, para cada método da interface Feign podemos dar um nome e isso para
+	o Resilience 4j é chamado de Instancia. Tenha em mente que a aconfiguração (anotação) vai ficar na classe Controller, quando eu mencionei o Feign
+	foi apenas para indicar que cada comunicação pode ter um nome e na interface do Feign temos todas as comunicações que nosso projeto pode fazer, mas
+	é no controller que chama o service (que utiliza o Feign) que vai ter a anotação. 
+	Tenha em mente que cada instancia podemos configurar um comportamento.
+
+
+- Vamos agora utilizar o Resilience 4j nos projetos:
+
+	1) Como o serviço que realiza a comunicação (Chama) é o de Pagamentos (ele chama o de pedidos), vamos colocar nele as dependencias:
+
+                <dependency>
+                    <groupId>io.github.resilience4j</groupId>
+                    <artifactId>resilience4j-spring-boot2</artifactId>
+                    <version>1.7.0</version>
+                </dependency>
+
+                <dependency>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-aop</artifactId>
+                </dependency>
+
+	2) Agora devemos criar nossa primeira instancia do Resilience 4j. Lembre-se que instancia nada mais é do que nomear um comunicação e no nosso projeto
+	só temos uma, por enquanto, e o método de Controller que faz essa comunicação é o confirmarPagamento(), então em cima deste método vamos anotar com:
+
+                @CircuitBreaker(name = "atualizaPedido", fallbackMethod = "")
+
+	Veja que ainda não definimos o plano b, ou seja, o fallback.
+
+	3) Criamos uma instancia, mas por enquanto só temos o nome dela. Ainda temos que configurá-la, e isso é feito no application.properties. Devemos
+	colocar lá:
+
+                resilience4j.circuitbreaker.instances.atualizaPedido.slidingWindowSize: 3
+                resilience4j.circuitbreaker.instances.atualizaPedido.minimumNumberOfCalls: 2
+                resilience4j.circuitbreaker.instances.atualizaPedido.waitDurationInOpenState: 50s
+
+	Veja que nesse código há o nome da instancia, no caso atualizaPedido.
+
+	O primeiro comando serve para indicar com quantas request vamos fazer uma estatistica, no nosso caso serão 3, ou seja, o resilience4j vai analisar as
+	últimas 3 requests para gerar uma estatistica e ver se muda o status de fechado pra aberto;
+
+	A segunda linha define quantas request tenho que fazer para depois o resilience4j entrar em ação, no caso 2. Ou seja, na terceira request com falha
+	ele vai atuar;
+
+	A última linha é o tempo que o status aberto vai durar, nesse caso definimos 50s, ou seja, após esse tempo o status da instancia vai para meio-aberto,
+	e se as request pararem de falhar o status vai para fechado.
+
+	4) Agora podemos testar, vamos subir todos os projetos, exceto o de Pedido, pois o de Pagamento chama o de Pedido, e queremos ver a atuação do
+	Circuit Breaker. Faça a request: @PATCH localhost:8082/pagamentos-ms/pagamentos/2/confirmar (Lembre-se que estamos usando o API Gateway). Veremos
+	que os dois primeiros erros é do Feign e o terceiro já é o Circuit Breaker! (Colocamos em prática o conceito de Fail Fast - poucas tentativas para o
+	circuit breaker entrar em ação)
+
+
+- Podemos adotar como Plano B (Fallback) várias estrátegias, uma delas é criar um Status para o pagamento que "represente a falha", por exemplo: APROVADO MAS
+NÃO INTEGRADO. E posteriormente poderiamos ter um JOB rodando em background que vai pegar todos os pagamentos com esse status e atualizá-los no serviço de
+Pedidos (ou seja, realiza a comunicação depois). Vamos implementar essa ideia, seiga o passo a passo:
+
+	1) No ENUM Status criar o valor CONFIRMADO_SEM_INTEGRACAO;
+
+	2) Vá na classe PagamentoController e no método anotado com @CircuitBreaker(name = "atualizaPedido", fallbackMethod = "") devemos adicionar no atributo
+	fallback o valor: pagamentoAutorizadoComIntegracaoPendente
+
+	3) Agora vamos criar o método pagamentoAutorizadoComIntegracaoPendente() na classe PagamentoController, que vai ficar assim:
+
+                public void pagamentoAutorizadoComIntegracaoPendente(Long id, Exception e){
+                    service.alteraStatus(id);
+                }
+
+	Precisamos no método ter o argumento de Excpetion, pois o Circuit Breaker lança a Exception (lembra que na terceira vez o erro no postman era dele).
+
+	4) Criar na classe PagamentoService o método alteraStatus(), ficando assim:
+
+                public void alteraStatus(Long id) {
+                    Optional<Pagamento> pagamento = repository.findById(id);
+
+                    if (!pagamento.isPresent()) {
+                        throw new EntityNotFoundException();
+                    }
+
+                    pagamento.get().setStatus(Status.CONFIRMADO_SEM_INTEGRACAO);
+                    repository.save(pagamento.get());
+
+                }
+
+	Repare que nesse não usamos o FeignClient, pois só vamos alterar o status neste serviço. Depois o Job rodando em background poderia fazer essa comunicação
+	e alterar o status lá no Service de Pedidos.
+
+	5) Podemos novamente refazer o teste, ou seja, vamos subir todos os projetos, exceto o de Pedido, pois o de Pagamento chama o de Pedido, e queremos ver a 
+	atuação do Circuit Breaker com Fallback. 
+	Faça a request: @PATCH localhost:8082/pagamentos-ms/pagamentos/2/confirmar (Lembre-se que estamos usando o API Gateway).
+	
+	Veremos que agora mesmo o serviço Pedidos estando OFF não temos erro! Pois o Fallback foi executado! Faça agora a consulta do pagamento de ID = 2 e veja
+	que seu status é: CONFIRMADO_SEM_INTEGRACAO

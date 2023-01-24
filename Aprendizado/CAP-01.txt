@@ -1,0 +1,108 @@
+- Aqui foi apresentado o projeto que vamos fazer nesse curso. Alem disso preparamos o ambiente para desenvolver o projeto.
+
+
+- O projeto será o Alura Food e vamos usar a arquieterua de Microserviço. O projeto Alura Food já existe, mas é um Monolito. Vamos quebrar esse Monolito em
+2 serviços, um para realizar pedido e outro para o pagamento. 
+
+
+- Nesse curso vamos:
+
+	- Cria as APIs;
+	- Usar Migrations (é uma forma de versionar nosso banco de dados);
+	- Service Discovery (é o conceito dos MS se registrarem nesse serviço, para facilitar a utilizaçao dos MS - passa a ser via nome e nao IP)
+	- Balanceamento de Carga (tendo várias instancias do mesmo MS, esse conceito distribui qual instancia do MS vai executar a requisição)
+	- API Gateway (É o centralizador das request, tudo começa nele)
+	- Comunicação síncrona
+	- Circuit Breaker e Fallback
+
+
+- Por que queremos mudar de Monolito para Microserviço? É devido as vantagens do Microserviço:
+
+	- Facilidade em mudança e manutenção;
+	- Times menores e autonomos;
+	- Reuso;
+	- Diversidade tecnologica (permite experimentação);
+	- Maior isolamento de falhas (se um MS cair, tem outros funcionando);
+	- Escalabilidade independente e flexível (Só escalo o MS que ta precisando)
+
+
+- Funcionalidades do Monolito do Alura Food:
+
+	- Administração
+	- Restaurante;
+	- Pedidos;
+	- Pagamento;
+	- Entregas
+	- Avaliações
+
+Mas agora a aplicação cresceu muito, dentro de cada funcionalidade surgiram coisas novas, alem disso surgiu também novas funcionalidades, por exemplo: agora
+não é só Restaurante, agora temos farmacia, supermercado...
+
+
+- Partindo pro Microserviço: devemos já quebrar todas essas funcionalidades em Microserviços? NÃO! Devemos ir por partes. Ver qual parte podemos isolar,
+ver qual parte é útil ser isolada (por exemplo, pagamento vamos isolar, pois queremos testar essa funcionalidade muito bem testada! Pois ela é importante!
+E como seus testes tendem a demorar é legal ser isolado).
+
+
+- Veja esses conteúdos para conhecer Padrões de MS e para conhecer mais sobre o assunto:
+
+	- https://cursos.alura.com.br/extra/alura-mais/o-que-sao-microsservicos--c699
+	- https://cursos.alura.com.br/extra/alura-mais/tipos-de-microservices-c698
+	- https://martinfowler.com/articles/microservices.html
+
+
+- O ambiente que vamos usar para desenvolver:
+
+	- Java 17 (configurar as variáveis de ambiente);
+	- Maven
+	- Mysql
+	- IntelliJ
+	- Postman
+
+
+- Criamos o nosso projeto inicial:
+	
+	Obs: Vamos fazer primeiro o MS de Pagamento. Cada MS terá sua base de dados e cada um ficará num repositório do Git.
+
+	1) Acessamos o site https://start.spring.io/
+	2) Nesse site marcamos o Maven, Java, Versão do Spring 2.6.7, group = br.com.alurafood, artifact= pagamentos, Packing = Jar e versão = 17
+	3) Dependencias que adicionamos:
+		- Spring web
+		- Spring Data JPA
+		- Driver do MySQL
+		- DevTools
+		- Lombok
+		- Validation
+		- Flyway Migration
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

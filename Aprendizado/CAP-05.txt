@@ -1,0 +1,133 @@
+- Nesse capítulo falamos sobre o API Gateway e Load Balance:
+
+
+- O ideal é ter um ponto único, centralizado, para receber as requisições, pois vimos que cada vez que as aplicações e o Service Registry/Discover são
+reiniciados a porta é alterada e a solução será adotar um ponto único que não altera o ip/porta, para receber as request.
+
+
+- Esse ponto único e que o tem o ip/porta imutável se chama API Gateway! 
+
+
+- Para implementarmos um API Gateway vamos usar o Spring Cloud Gateway (fica dentro de Spring Cloud).
+
+
+- Siga o passo a passo para criar um API Gateway:
+
+	1) Entrar no site https://start.spring.io/ e criar um projeto com Maven, Java 17, Sprinjg 2.7.7, com as dependencias: Gateway e Eureka Discovery
+	Client. Nome desse será gateway.
+
+
+- Veja que o Gateway também precisa se registrar no Service Registry e por esse motivo tivemos que adicionar a dependencia do Eureka Discovery Client
+
+
+- Agora devemos configurar nosso projeto Gateway. Isso vai ocorrer no arquivo application.properties, veja o trecho:
+			
+                #Define a porta da aplicação			
+                server.port=8082
+
+                #Nome da aplicação
+                spring.application.name=gateway
+
+                #Onde vai rodar esse serviço. Quem ussa esse é o cliente (aplicaçã que vai se registrar, por exemplo Pagamento)
+                eureka.client.serviceUrl.defaultZone=http://localhost:8081/eureka
+
+                #Isso que vai fazer funcionar o processo de descoberta (do Gateway saber repassar a request pro serviço correto)
+                spring.cloud.gateway.discovery.locator.enabled=true
+
+                #Define que os nomes das aplicações (definidos por spring.application.name=gateway) estão em minusculo
+                spring.cloud.gateway.discovery.locator.lowerCaseServiceId=true
+
+- Agora na classe principal (tem o método main) devemos habilitar o projeto para ser um Eureka Client, para isso basta adicionar:
+
+                @EnableEurekaClient
+
+
+- Suba agora todos os projetos, acesse x e veja se a instancia dos projetos aparecem (Pagamentos, Pedidos e Gateway).
+
+
+- E agora, como chamar os serviços?
+
+	- Veja esse exemplo, antes chamavamos o serviço de Pedidos por localhost:8080/pedidos (lembre-se que a porta vai mudar se estivermos usando o Service
+	Discovery, que é o nosso caso. Com o Service Discovery cada hora que o serviço é startado a porta é alterada.) Dessa forma estamos batendo direto
+	no serviço de Pedidos.
+
+	- Com Gateway, para chamavar o serviço Pedidos fica: localhost:8082/pedidos-ms/pedidos 
+	localhost, pois estamos localmente e a porta é fixa para o gateway (definimos isso no application.properties). O pedidos-ms é o nome do serviço que 
+	queremos acessar e por fim o seu path (operação) que é /pedidos
+
+	Agora dá pra entender o motivo do API Gateway ser um Eureka Client, pois ele também vai encontrar outros serviços via o nome!
+
+
+- Para saber mais sobre API Gateway, assista: https://cursos.alura.com.br/extra/alura-mais/o-que-e-um-api-gateway--c1138
+
+
+- Vamos falar sobre o Balanceamento de Carga - LOAD BALANCE: 
+
+	- Este conceito talvez seja um dos principais motivos da adoção da arquitetura de Microsserviços;
+
+	- Ao adotar o uso de Microsserviços passa a ser possível a escalabilidade de um determinado serviço (vamos escalar o serviço que está necessitando 
+	e não mais a aplicação toda como é feito em Monolito).
+
+	- Escalonamento horizontal é aumentar a quantidade de instancias rodando o mesmo serviço
+
+	- Escalonamento vertical é aumentar o poder de processamento dá máquina que está rodando o serviço (aumentar memoria, melhorar processador...)
+
+	- Aplicando o escalonamento horizontal teremos várias instancias rodando o serviço e gerenciar qual instancia irá atender a requisição é a função do
+	LOAD BALANCE. E o Gateway do Spring aplica isso, ou seja, ele faz o Server Load Balancing (ou em português, balanceamento de carga).
+
+
+- Vamos implementar um exemplo que vai mostrar a ocorrencia do Balanceamento de Carga - LOAD BALANCE:
+
+	- Pare o serviço de Pedidos;
+
+	- Temos que identificar cada instantica que vai rodar o serviço de Pedidos, para isso podemos dar um ID para cada instancia. Vá no 
+	application.properties e adicione:
+
+            eureka.instance.instance-id=${spring.application.name}:${random.int}
+
+	Com esse comando estamos dando um id para cada instancia que for subida desse serviço. O id é composto pelo nome da aplicação 
+	(${spring.application.name}) e depois concatenado por um número aleatório (${random.int}). SEM DAR ESSE ID HÁ CRIAÇAO DE VÁRIAS INSTANCIAS, MAS NÃO
+	HÁ O LOAD BALANCE, O EUREKA EXIBE APENAS UMA INSTANCIA MESMO RODANDO (EXECUTANDO) MAIS DEU UMA APLICAÇÃO/INSTANCIA!
+
+	- Na classe PedidoController vamos criar um método anotado com @GetMapping("/porta") que vai retornar a porta da aplicação. Isso é apenas para nos 
+	mostrar na prática que cada hora será uma instancia diferente que tá respondendo a requisição. O método vai ficar assim:
+
+                @GetMapping("/porta")
+                public String retornaPorta(@Value("${local.server.port}") String porta) {
+                    return String.format("Requisição respondida pela instância executando na porta %s", porta);
+                }
+
+	Veja que o valor da porta é pego através de @Value("${local.server.port}") e o valor é colocado na variável porta.
+
+
+	- Suba agora duas instancias do Microsserviço de Pedidos. Uma pode ser levantada dando play na IDE (o que fazemos normalmente) e a outra via terminal
+	rodando o comando:
+
+		& "D:\IntelliJ Projetos\pedidos\mvnw.cmd" spring-boot:run "D:\IntelliJ Projetos\pedidos\pom.xml" 
+
+	Esse comando foi a professora que passou, mas não funcionou (Lembre-se ao usá-lo de alterar o diretório do projeto se preciso.)
+	
+	O usado por mim, foi gerar o JAR da aplicaçao via mvn clean package e depois executar o jar via terminal com java -jar NOME_DO_JAR
+
+	- Visite agora o localhost:8081 (É o Service Registry) e veja se aparece duas instancias de Pedidos
+
+	- Agora vá no postman e faça requests para Pedidos, mas batendo via Gateway (localhost:8082/pedidos-ms/pedidos/porta)
+	Veja que cada hora a reposta é uma porta diferente, ou seja, cada Request está indo para uma intancia diferente!
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
